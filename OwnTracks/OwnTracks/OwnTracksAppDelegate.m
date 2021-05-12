@@ -23,7 +23,7 @@
 #import "OwnTracksChangeMonitoringIntent.h"
 
 #import <CocoaLumberjack/CocoaLumberjack.h>
-static const DDLogLevel ddLogLevel = DDLogLevelInfo;
+static const DDLogLevel ddLogLevel = DDLogLevelVerbose;
 
 @interface NSString (safe)
 - (BOOL)saveEqual:(NSString *)aString;
@@ -225,6 +225,8 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
                                                inMOC:moc];
     locationManager.minTime = [Settings doubleForKey:@"mintime_preference"
                                                inMOC:moc];
+    locationManager.idleFactor = [Settings intForKey:@"idlefactor_preference"
+                                               inMOC:moc];
     [locationManager start];
 
     return YES;
@@ -253,7 +255,8 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
 #if !TARGET_OS_MACCATALYST
     [self background];
     #if !TARGET_OS_MACCATALYST
-            if ([LocationManager sharedInstance].monitoring != LocationMonitoringMove) {
+            if ([LocationManager sharedInstance].monitoring != LocationMonitoringMove &&
+                ([LocationManager sharedInstance].monitoring != LocationMonitoringPlus || ![LocationManager sharedInstance].plus)) {
                 [self.connection disconnect];
             }
     #else
@@ -587,7 +590,8 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
     if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground &&
         self.backgroundTask == UIBackgroundTaskInvalid) {
         self.backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-            DDLogVerbose(@"[OwnTracksAppDelegate] BackgroundTaskExpirationHandler");
+            DDLogVerbose(@"[OwnTracksAppDelegate] BackgroundTaskExpirationHandler %lu",
+                         (unsigned long)self.backgroundTask);
             if (self.backgroundTask) {
                 [[UIApplication sharedApplication] endBackgroundTask:self.backgroundTask];
                 self.backgroundTask = UIBackgroundTaskInvalid;
@@ -598,9 +602,19 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
     }
 }
 
-- (void)startBackgroundTimer {
+- (BOOL)startBackgroundTimer {
+    NSTimeInterval backgroundTimeRemaining = [UIApplication sharedApplication].backgroundTimeRemaining;
+
+    DDLogVerbose(@"[OwnTracksAppDelegate] startBackgroundTimer %ld %ld %d %lu %@",
+                 (long)[UIApplication sharedApplication].applicationState,
+                 (long)[LocationManager sharedInstance].monitoring,
+                 [LocationManager sharedInstance].plus,
+                 (unsigned long)self.backgroundTask,
+                 backgroundTimeRemaining > 24 * 3600 ? @"∞": @(floor(backgroundTimeRemaining)).stringValue);
+
     if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground &&
-        [LocationManager sharedInstance].monitoring != LocationMonitoringMove) {
+        [LocationManager sharedInstance].monitoring != LocationMonitoringMove  &&
+        ([LocationManager sharedInstance].monitoring != LocationMonitoringPlus || ![LocationManager sharedInstance].plus)) {
         if (self.disconnectTimer && self.disconnectTimer.isValid) {
             DDLogVerbose(@"[OwnTracksAppDelegate] disconnectTimer.isValid %@",
                          self.disconnectTimer.fireDate);
@@ -644,6 +658,9 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
                 }];
             }];
         }
+        return true;
+    } else {
+        return false;
     }
 }
 
@@ -950,6 +967,7 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
                         } else if ([@"reportLocation" saveEqual:dictionary[@"action"]]) {
                             if ([LocationManager sharedInstance].monitoring == LocationMonitoringSignificant ||
                                 [LocationManager sharedInstance].monitoring == LocationMonitoringMove ||
+                                [LocationManager sharedInstance].monitoring == LocationMonitoringPlus ||
                                 [Settings boolForKey:@"allowremotelocation_preference"
                                                inMOC:CoreData.sharedInstance.queuedMOC]) {
                                     [self performSelectorOnMainThread:@selector(reportLocation)
@@ -1525,6 +1543,9 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
                 break;
             case OwnTracksEnumMove:
                 monitoring = LocationMonitoringMove;
+                break;
+            case OwnTracksEnumPlus:
+                monitoring = LocationMonitoringPlus;
                 break;
             default:
                 break;

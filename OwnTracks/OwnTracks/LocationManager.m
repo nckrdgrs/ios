@@ -12,6 +12,8 @@
 
 @interface LocationManager()
 @property (strong, nonatomic) CLLocationManager *manager;
+@property (nonatomic) BOOL plus;
+@property (nonatomic) NSInteger idle;
 @property (strong, nonatomic) CMAltimeter *altimeter;
 @property (strong, nonatomic) CLLocation *lastUsedLocation;
 @property (strong, nonatomic) NSTimer *activityTimer;
@@ -52,7 +54,7 @@
 @end
 
 @implementation LocationManager
-static const DDLogLevel ddLogLevel = DDLogLevelInfo;
+static const DDLogLevel ddLogLevel = DDLogLevelVerbose;
 static LocationManager *theInstance = nil;
 
 + (LocationManager *)sharedInstance {
@@ -163,7 +165,8 @@ static LocationManager *theInstance = nil;
 - (void)wakeup {
     DDLogVerbose(@"wakeup");
     [self authorize];
-    if (self.monitoring == LocationMonitoringMove) {
+    if (self.monitoring == LocationMonitoringMove ||
+        ([LocationManager sharedInstance].monitoring == LocationMonitoringPlus &&  [LocationManager sharedInstance].plus)) {
         [self.activityTimer invalidate];
         self.activityTimer = [NSTimer timerWithTimeInterval:self.minTime
                                                      target:self
@@ -177,8 +180,9 @@ static LocationManager *theInstance = nil;
         DDLogVerbose(@"requestStateForRegion %@", region.identifier);
         [self.manager requestStateForRegion:region];
     }
-    if (self.monitoring == LocationMonitoringSignificant) {
-        [self.manager  requestLocation];
+    if (self.monitoring == LocationMonitoringSignificant ||
+        ([LocationManager sharedInstance].monitoring == LocationMonitoringPlus &&  ![LocationManager sharedInstance].plus)) {
+        [self.manager requestLocation];
     }
     [self startBackgroundTimer];
 }
@@ -196,7 +200,8 @@ static LocationManager *theInstance = nil;
     for (CLBeaconIdentityConstraint *beaconIdentityConstraint in self.manager.rangedBeaconConstraints) {
         [self.manager stopRangingBeaconsSatisfyingConstraint:beaconIdentityConstraint];
     }
-    if (self.monitoring != LocationMonitoringMove) {
+    if (self.monitoring != LocationMonitoringMove &&
+        ([LocationManager sharedInstance].monitoring != LocationMonitoringPlus || ![LocationManager sharedInstance].plus)) {
         [self.activityTimer invalidate];
     }
 }
@@ -268,9 +273,46 @@ static LocationManager *theInstance = nil;
     self.monitoring = self.monitoring;
 }
 
+- (void)zero {
+    self.manager.pausesLocationUpdatesAutomatically = NO;
+    self.manager.allowsBackgroundLocationUpdates = TRUE;
+
+    [self.manager stopUpdatingLocation];
+    [self.manager stopMonitoringVisits];
+    [self.manager stopMonitoringSignificantLocationChanges];
+    [self.activityTimer invalidate];
+}
+
+- (void)up {
+    DDLogVerbose(@"[LocationManager] up");
+    [self zero];
+    self.manager.distanceFilter = kCLDistanceFilterNone;
+    self.manager.desiredAccuracy = kCLLocationAccuracyBest;
+    [self.activityTimer invalidate];
+
+    self.plus = TRUE;
+    self.idle = 0;
+    [self.manager startUpdatingLocation];
+    self.activityTimer = [NSTimer timerWithTimeInterval:self.minTime
+                                                 target:self selector:@selector(activityTimer:)
+                                               userInfo:Nil
+                                                repeats:YES];
+    [[NSRunLoop currentRunLoop] addTimer:self.activityTimer
+                                 forMode:NSRunLoopCommonModes];
+}
+
+- (void)down {
+    DDLogVerbose(@"[LocationManager] down");
+    [self zero];
+    self.plus = FALSE;
+    [self.manager startMonitoringSignificantLocationChanges];
+    [self.manager startMonitoringVisits];
+}
+
 - (void)setMonitoring:(LocationMonitoring)monitoring {
     DDLogVerbose(@"monitoring=%ld", (long)monitoring);
-    if (monitoring != LocationMonitoringMove &&
+    if (monitoring != LocationMonitoringPlus &&
+        monitoring != LocationMonitoringMove &&
         monitoring != LocationMonitoringManual &&
         monitoring != LocationMonitoringQuiet &&
         monitoring != LocationMonitoringSignificant) {
@@ -286,30 +328,19 @@ static LocationManager *theInstance = nil;
     [self.manager stopMonitoringSignificantLocationChanges];
 
     switch (monitoring) {
+        case LocationMonitoringPlus:
         case LocationMonitoringMove:
-            self.manager.distanceFilter = self.minDist > 0 ? self.minDist : kCLDistanceFilterNone;
-            self.manager.desiredAccuracy = kCLLocationAccuracyBest;
-            [self.activityTimer invalidate];
-            
-            [self.manager startUpdatingLocation];
-            self.activityTimer = [NSTimer timerWithTimeInterval:self.minTime
-                                                         target:self selector:@selector(activityTimer:)
-                                                       userInfo:Nil
-                                                        repeats:YES];
-            [[NSRunLoop currentRunLoop] addTimer:self.activityTimer
-                                         forMode:NSRunLoopCommonModes];
+            [self up];
             break;
             
         case LocationMonitoringSignificant:
-            [self.activityTimer invalidate];
-            [self.manager startMonitoringSignificantLocationChanges];
-            [self.manager startMonitoringVisits];
+            [self down];
             break;
             
         case LocationMonitoringManual:
         case LocationMonitoringQuiet:
         default:
-            [self.activityTimer invalidate];
+            [self zero];
             break;
     }
     NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:@"group.org.owntracks.Owntracks"];
@@ -338,6 +369,13 @@ static LocationManager *theInstance = nil;
 
 - (void)activityTimer:(NSTimer *)timer {
     DDLogVerbose(@"activityTimer");
+    self.idle++;
+    if (self.monitoring == LocationMonitoringPlus &&
+        self.plus &&
+        self.idle > self.idleFactor) {
+        [self down];
+    }
+
     if (self.manager.location) {
         [self.delegate timerLocation:self.manager.location];
     } else {
@@ -443,12 +481,19 @@ didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
 - (void)locationManager:(CLLocationManager *)manager
      didUpdateLocations:(NSArray *)locations {
     DDLogVerbose(@"[LocationManager] didUpdateLocations");
-    
     for (CLLocation *location in locations) {
         DDLogVerbose(@"[LocationManager] Location: %@", location);
         if ([location.timestamp compare:self.lastUsedLocation.timestamp] != NSOrderedAscending ) {
-            self.lastUsedLocation = location;
-            [self.delegate newLocation:location];
+            CLLocationDistance distance = [self.lastUsedLocation distanceFromLocation:location];
+            DDLogVerbose(@"[LocationManager] Distance: %gm/%gm", distance, self.minDist);
+            if (distance > self.minDist) {
+                self.idle = 0;
+                self.lastUsedLocation = location;
+                [self.delegate newLocation:location];
+                if (self.monitoring == LocationMonitoringPlus && !self.plus) {
+                    [self up];
+                }
+            }
         }
     }
 }
@@ -529,6 +574,9 @@ didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
     
     if (![self removeHoldDown:region]) {
         [self locationManager:manager didDetermineState:CLRegionStateInside forRegion:region];
+        if (self.monitoring == LocationMonitoringPlus && !self.plus) {
+            [self up];
+        }
         [self.delegate regionEvent:region enter:YES];
     }
 }
@@ -542,6 +590,9 @@ didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
         [self.pendingRegionEvents addObject:[PendingRegionEvent holdDown:region for:3.0 to:self]];
     } else {
         [self locationManager:manager didDetermineState:CLRegionStateOutside forRegion:region];
+        if (self.monitoring == LocationMonitoringPlus && !self.plus) {
+            [self up];
+        }
         [self.delegate regionEvent:region enter:NO];
     }
 }
@@ -566,6 +617,9 @@ didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
     if ([timer.userInfo isKindOfClass:[PendingRegionEvent class]]) {
         PendingRegionEvent *p = (PendingRegionEvent *)timer.userInfo;
         DDLogVerbose(@"[LocationManager] holdDownExpired %@", p.region.identifier);
+        if (self.monitoring == LocationMonitoringPlus && !self.plus) {
+            [self up];
+        }
         [self.delegate regionEvent:p.region enter:NO];
         [self removeHoldDown:p.region];
     }

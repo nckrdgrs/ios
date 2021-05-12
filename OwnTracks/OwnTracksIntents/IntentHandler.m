@@ -49,6 +49,9 @@
         case OwnTracksEnumMove:
             monitoring = 2;
             break;
+        case OwnTracksEnumPlus:
+            monitoring = 3;
+            break;
         default:
             break;
     }
@@ -63,7 +66,8 @@
     if (intent.monitoring == OwnTracksEnumQuiet ||
         intent.monitoring == OwnTracksEnumManual ||
         intent.monitoring == OwnTracksEnumSignificant ||
-        intent.monitoring == OwnTracksEnumMove) {
+        intent.monitoring == OwnTracksEnumMove ||
+        intent.monitoring == OwnTracksEnumPlus) {
         OwnTracksEnumResolutionResult *result = [OwnTracksEnumResolutionResult successWithResolvedEnum:intent.monitoring];
         completion(result);
     } else {

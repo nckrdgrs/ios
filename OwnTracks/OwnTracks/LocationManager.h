@@ -31,16 +31,19 @@ typedef NS_ENUM(NSInteger, LocationMonitoring) {
     LocationMonitoringQuiet = -1,
     LocationMonitoringManual,
     LocationMonitoringSignificant,
-    LocationMonitoringMove
+    LocationMonitoringMove,
+    LocationMonitoringPlus
 };
 
 
 + (LocationManager *)sharedInstance;
 @property (weak, nonatomic) id<LocationManagerDelegate> delegate;
 @property (nonatomic) LocationMonitoring monitoring;
+@property (readonly, nonatomic) BOOL plus;
 @property (nonatomic) BOOL ranging;
 @property (nonatomic) double minDist;
 @property (nonatomic) double minTime;
+@property (nonatomic) NSInteger idleFactor;
 @property (readonly, nonatomic) CLLocation *location;
 @property (strong, nonatomic) CMAltitudeData *altitude;
 

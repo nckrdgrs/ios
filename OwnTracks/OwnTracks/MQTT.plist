@@ -6,6 +6,8 @@
 	<integer>200</integer>
 	<key>mintime_preference</key>
 	<integer>180</integer>
+	<key>idlefactor_preference</key>
+	<integer>10</integer>
 	<key>deviceid_preference</key>
 	<string></string>
 	<key>clientid_preference</key>

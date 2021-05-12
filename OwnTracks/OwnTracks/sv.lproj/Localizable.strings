@@ -187,6 +187,9 @@
 /* Alert content for mode change warning */
 "Please be aware your stored waypoints and locations will be deleted on this device for privacy reasons. Please backup before." = "Tänk på att dina lagrade vägpunkter och platser kommer att raderas på den här enheten av sekretesskäl. Vänligen säkerhetskopiera de innan.";
 
+/* Plus */
+"Plus" = "Plus";
+
 /* Alert header regarding protocol input */
 "Protocol invalid" = "Protokollet ogiltigt";
 

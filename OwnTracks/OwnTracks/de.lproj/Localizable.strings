@@ -187,6 +187,9 @@
 /* Alert content for mode change warning */
 "Please be aware your stored waypoints and locations will be deleted on this device for privacy reasons. Please backup before." = "Bitte beachten Sie, dass gespeicherte Regionen und Positionen auf diesem Gerät gelöscht werden. Bitte sichern Sie diese vorher.";
 
+/* Plus */
+"Plus" = "Plus";
+
 /* Alert header regarding protocol input */
 "Protocol invalid" = "Ungültiges Protokoll";
 

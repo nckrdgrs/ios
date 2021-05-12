@@ -76,7 +76,8 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
                   initWithItems:@[NSLocalizedString(@"Quiet", @"Quiet"),
                                   NSLocalizedString(@"Manual", @"Manual"),
                                   NSLocalizedString(@"Significant", @"Significant"),
-                                  NSLocalizedString(@"Move", @"Move")
+                                  NSLocalizedString(@"Move", @"Move"),
+                                  NSLocalizedString(@"Plus", @"Plus")
                                   ]];
     self.modes.apportionsSegmentWidthsByContent = YES;
     self.modes.translatesAutoresizingMaskIntoConstraints = false;
@@ -207,6 +208,10 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
     int monitoring;
     OwnTracksEnum intentMonitoring;
     switch (segmentedControl.selectedSegmentIndex) {
+        case 4:
+            monitoring = LocationMonitoringPlus;
+            intentMonitoring = OwnTracksEnumPlus;
+            break;
         case 3:
             monitoring = LocationMonitoringMove;
             intentMonitoring = OwnTracksEnumMove;
@@ -244,6 +249,9 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
 
 - (void)updateMoveButton {
     switch ([LocationManager sharedInstance].monitoring) {
+        case LocationMonitoringPlus:
+            self.modes.selectedSegmentIndex = 4;
+            break;
         case LocationMonitoringMove:
             self.modes.selectedSegmentIndex = 3;
             break;
@@ -630,13 +638,21 @@ calloutAccessoryControlTapped:(UIControl *)control {
                 break;
 
             case NSFetchedResultsChangeUpdate:
-            case NSFetchedResultsChangeMove:
+            case NSFetchedResultsChangeMove: {
+                BOOL overlay = FALSE;
+                if ([self.mapView.overlays containsObject:friend]) {
+                    overlay = TRUE;
+                }
                 [self.mapView removeOverlay:friend];
                 [self.mapView removeAnnotation:friend];
                 if (waypoint && (waypoint.lat).doubleValue != 0.0 && (waypoint.lon).doubleValue != 0.0) {
                     [self.mapView addAnnotation:friend];
+                    if (overlay) {
+                        [self.mapView addOverlay:friend];
+                    }
                 }
                 break;
+            }
         }
 
     } else if ([anObject isKindOfClass:[Region class]]) {
