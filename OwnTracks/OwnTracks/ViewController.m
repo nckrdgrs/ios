@@ -38,6 +38,9 @@
 @property (strong, nonatomic) UISegmentedControl *mapMode;
 @property (strong, nonatomic) MKUserTrackingButton *trackingButton;
 @property (nonatomic) BOOL warning;
+@property (strong, nonatomic) MKTileOverlayRenderer *osmRenderer;
+@property (strong, nonatomic) UITextField *osmCopyright;
+
 @end
 
 
@@ -165,6 +168,58 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
     [[NSUserDefaults standardUserDefaults] integerForKey:@"mapMode"];
     [self mapModeChanged:self.mapMode];
 
+    self.osmRenderer = nil;
+    NSString *osmTemplateString = [Settings
+                                   stringForKey:@"alternativetiles_preference"
+                                   inMOC:CoreData.sharedInstance.mainMOC];
+    NSString *osmCopyrightString = [Settings
+                                    stringForKey:@"alternativecopyright_preference"
+                                    inMOC:CoreData.sharedInstance.mainMOC];
+#ifdef DEBUG
+    osmTemplateString = @"https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    osmCopyrightString = @"© OpenStreetMap contributors";
+#endif
+    if (osmTemplateString) {
+        MKTileOverlay *osmOverlay = [[MKTileOverlay alloc] initWithURLTemplate:osmTemplateString];
+        osmOverlay.canReplaceMapContent = YES;
+
+        [self.mapView addOverlay:osmOverlay
+                           level:MKOverlayLevelAboveLabels];
+        for (UIView *view in self.mapView.subviews) {
+            NSLog(@"Subview %@", view);
+        }
+        self.mapView.subviews[1].hidden = true;
+        self.mapView.subviews[2].hidden = true;
+        self.mapMode.hidden = true;
+        self.osmCopyright = [[UITextField alloc] init];
+        self.osmCopyright.text = osmCopyrightString;
+        self.osmCopyright.font = [UIFont systemFontOfSize:UIFont.smallSystemFontSize];
+        self.osmCopyright.enabled = false;
+        self.osmCopyright.translatesAutoresizingMaskIntoConstraints = false;
+        [self.view addSubview:self.osmCopyright];
+
+        NSLayoutConstraint *bottomCopyright = [NSLayoutConstraint
+                                   constraintWithItem:self.osmCopyright
+                                   attribute:NSLayoutAttributeBottom
+                                   relatedBy:NSLayoutRelationEqual
+                                   toItem:self.mapView
+                                   attribute:NSLayoutAttributeBottomMargin
+                                   multiplier:1
+                                   constant:0];
+        NSLayoutConstraint *trailingCopyright = [NSLayoutConstraint
+                                       constraintWithItem:self.osmCopyright
+                                       attribute:NSLayoutAttributeTrailing
+                                       relatedBy:NSLayoutRelationEqual
+                                       toItem:self.mapView
+                                       attribute:NSLayoutAttributeTrailingMargin
+                                       multiplier:1
+                                       constant:0];
+
+        [NSLayoutConstraint activateConstraints:@[bottomCopyright, trailingCopyright]];
+
+        self.osmRenderer = [[MKTileOverlayRenderer alloc] initWithTileOverlay:osmOverlay];
+    }
+
     [[LocationManager sharedInstance] addObserver:self
                                        forKeyPath:@"monitoring"
                                           options:NSKeyValueObservingOptionNew
@@ -284,6 +339,7 @@ static const DDLogLevel ddLogLevel = DDLogLevelInfo;
     self.frcFriends = nil;
     self.frcRegions = nil;
     [self updateMoveButton];
+    [self.mapView setNeedsDisplay];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -490,6 +546,8 @@ didChangeDragState:(MKAnnotationViewDragState)newState
             }
         }
         return renderer;
+    } else if ([overlay isKindOfClass:[MKTileOverlay class]]) {
+        return self.osmRenderer;
     } else {
         return nil;
     }
